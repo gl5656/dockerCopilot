@@ -2,7 +2,6 @@ package image
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/onlyLTY/dockerCopilot/internal/module"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
