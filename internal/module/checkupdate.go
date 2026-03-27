@@ -7,11 +7,14 @@ import (
 	ref "github.com/distribution/reference"
 	"github.com/onlyLTY/dockerCopilot/internal/types"
 	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/core/sysx"
 	"io"
 	"net"
 	"net/http"
 	url2 "net/url"
+	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -19,19 +22,124 @@ import (
 type ImageCheckList struct {
 	NeedUpdate bool
 }
+
 type ImageUpdateData struct {
 	Data map[string]ImageCheckList
+	mu   sync.RWMutex
+	// 新增：忽略更新的镜像列表，key 为镜像 ID
+	IgnoredImages map[string]bool
+	ignoreFile    string
 }
 
 const ContentDigestHeader = "Docker-Content-Digest"
 
 func NewImageCheck() *ImageUpdateData {
-	return &ImageUpdateData{
-		Data: map[string]ImageCheckList{},
+	data := &ImageUpdateData{
+		Data:          map[string]ImageCheckList{},
+		IgnoredImages: make(map[string]bool),
+		ignoreFile:    getIgnoreFilePath(),
 	}
+	// 启动时加载忽略列表
+	data.LoadIgnored()
+	return data
 }
+
+func getIgnoreFilePath() string {
+	return "/app/data/ignore_images.txt"
+}
+
+func (i *ImageUpdateData) LoadIgnored() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	// 确保目录存在
+	dir := "/app/data"
+	if err := os.MkdirAll(dir, 0644); err != nil {
+		logx.Error("创建忽略文件目录失败: " + err.Error())
+		return
+	}
+
+	data, err := os.ReadFile(i.ignoreFile)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			logx.Error("读取忽略列表失败: " + err.Error())
+		}
+		return
+	}
+
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			i.IgnoredImages[line] = true
+		}
+	}
+	logx.Info("已加载忽略镜像列表，共 " + string(rune(len(i.IgnoredImages))) + " 个")
+}
+
+func (i *ImageUpdateData) SaveIgnored() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
+	dir := "/app/data"
+	if err := os.MkdirAll(dir, 0644); err != nil {
+		logx.Error("创建忽略文件目录失败: " + err.Error())
+		return
+	}
+
+	var lines []string
+	for id := range i.IgnoredImages {
+		lines = append(lines, id)
+	}
+
+	content := strings.Join(lines, "\n")
+	if err := os.WriteFile(i.ignoreFile, []byte(content), 0644); err != nil {
+		logx.Error("保存忽略列表失败: " + err.Error())
+		return
+	}
+	logx.Info("已保存忽略镜像列表")
+}
+
+// IgnoreImage 将镜像ID加入忽略列表
+func (i *ImageUpdateData) IgnoreImage(imageId string) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.IgnoredImages[imageId] = true
+}
+
+// UnignoreImage 将镜像ID从忽略列表移除
+func (i *ImageUpdateData) UnignoreImage(imageId string) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	delete(i.IgnoredImages, imageId)
+}
+
+// IsIgnored 检查镜像是否被忽略
+func (i *ImageUpdateData) IsIgnored(imageId string) bool {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return i.IgnoredImages[imageId]
+}
+
+// GetIgnoredImages 获取所有忽略的镜像ID列表
+func (i *ImageUpdateData) GetIgnoredImages() []string {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	result := make([]string, 0, len(i.IgnoredImages))
+	for id := range i.IgnoredImages {
+		result = append(result, id)
+	}
+	return result
+}
+
 func (i *ImageUpdateData) CheckUpdate(imageList []types.Image) {
 	for _, image := range imageList {
+		// ★ 新增：跳过忽略的镜像
+		if i.IsIgnored(image.ID) {
+			logx.Info("跳过忽略的镜像: " + image.ImageName + ":" + image.ImageTag)
+			continue
+		}
+
 		if strings.Contains(image.ImageName, "0nlylty/dockercopilot") {
 			continue
 		}
@@ -147,4 +255,9 @@ func GetDigest(url string, token string) (string, error) {
 		return "", fmt.Errorf("registry responded to head request with %q, auth: %q", res.Status, wwwAuthHeader)
 	}
 	return res.Header.Get(ContentDigestHeader), nil
+}
+
+// Hostname 返回主机名
+func Hostname() string {
+	return sysx.Hostname()
 }

@@ -130,6 +130,21 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/images",
 				Handler: image.ImagesListHandler(serverCtx),
 			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/image/ignored/list",
+				Handler: image.GetIgnoredImagesHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/image/ignore/set",
+				Handler: image.SetIgnoreImageHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/image/ignore/unignore",
+				Handler: image.UnignoreImageHandler(serverCtx),
+			},
 		},
 		rest.WithJwt(serverCtx.Config.Auth.AccessSecret),
 		rest.WithPrefix("/api"),

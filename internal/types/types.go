@@ -93,3 +93,18 @@ type VersionReq struct {
 type GetNewImageReq struct {
 	ImageNameAndTag string `json:"image_name_and_tag"`
 }
+
+type IgnoreImageReq struct {
+	ImageId string `json:"imageId"`
+}
+
+type IgnoredImagesResp struct {
+	Code int      `json:"code"`
+	Msg  string   `json:"msg"`
+	Data []string `json:"data"`
+}
+
+type SetIgnoreImageResp struct {
+	Code int    `json:"code"`
+	Msg  string `json:"msg"`
+}
